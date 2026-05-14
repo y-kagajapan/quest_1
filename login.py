@@ -1,5 +1,6 @@
 import streamlit as st
 import sqlite3
+from supabase import create_client
 
 st.set_page_config(page_title="開発管理統合システム", 
 layout="wide",

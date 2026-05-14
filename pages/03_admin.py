@@ -269,65 +269,70 @@ elif st.session_state.admin_page == "📝 案件修正":
         try:
             supabase = get_db_connection()
             
-            # 【強化1】入力された文字の前後のスペースを消し、全角ハイフン等を半角に強制変換する
-            clean_id = target_id_input.strip().replace('－', '-').replace('ー', '-').replace('‐', '-').upper()
+            # 不正を防ぐため、余計な変換はせず「前後の空白削除」のみ行う（厳密な完全一致用）
+            clean_id = target_id_input.strip()
             
-            # 【強化2】完全一致（eq）ではなく、大文字小文字を問わない部分一致（ilike）で検索する
-            res_matter = supabase.table("TB_matter").select("matter_id, matter_title, status_id, remarks").ilike("matter_id", f"%{clean_id}%").execute()
+            # 【最強の解決策】予算画面と同じく、APIの通信フィルタを外し、Pandasで完全一致検索を行う
+            res_matter = supabase.table("TB_matter").select("matter_id, matter_title, status_id, remarks").execute()
+            df_matter = pd.DataFrame(res_matter.data)
+            
+            if not df_matter.empty:
+                # データベース側の見えない空白なども考慮して、純粋な文字同士で「完全一致」するか判定
+                df_matter['matter_id_clean'] = df_matter['matter_id'].astype(str).str.strip()
+                match_df = df_matter[df_matter['matter_id_clean'] == clean_id]
 
-            if res_matter.data:
-                # 検索結果が複数出た場合は最初の1件を取得
-                target_data = res_matter.data[0]
-                # 実際のデータベース上の正しいIDを取得
-                actual_id = target_data['matter_id']
-                m_title = target_data['matter_title']
-                s_id = int(target_data['status_id'])
-                current_remarks = target_data['remarks'] or ""
-                
-                status_map = {1:"起案中", 2:"差し戻し", 3:"部署承認中", 4:"本部回議中", 5:"最終承認済", 6:"完了"}
-                current_status_text = status_map.get(s_id, f"不明(ID:{s_id})")
+                if not match_df.empty:
+                    target_data = match_df.iloc[0]
+                    actual_db_id = target_data['matter_id'] # 更新用にDBの生のIDを保持
+                    m_title = target_data['matter_title']
+                    s_id = int(target_data['status_id']) if pd.notna(target_data['status_id']) else 1
+                    current_remarks = target_data['remarks'] if target_data['remarks'] else ""
+                    
+                    status_map = {1:"起案中", 2:"差し戻し", 3:"部署承認中", 4:"本部回議中", 5:"最終承認済", 6:"完了"}
+                    current_status_text = status_map.get(s_id, f"不明(ID:{s_id})")
 
-                # 確認用表示
-                st.info(f"✅ **対象案件を確認しました**\n\n**案件ID:** {actual_id}\n**案件名:** {m_title}  \n**現在のステータス:** `{current_status_text}`")
+                    # 確認用表示
+                    st.info(f"✅ **対象案件を確認しました**\n\n**案件ID:** {clean_id}\n**案件名:** {m_title}  \n**現在のステータス:** `{current_status_text}`")
 
-                # 2. 修正用フォーム
-                with st.form("admin_matter_fix"):
-                    st.write("🔧 **ステータスの変更設定**")
-                    new_status = st.selectbox(
-                        "変更後のステータスを選択", 
-                        options=[2, 3, 4, 5, 6], 
-                        format_func=lambda x: status_map.get(x, "不明")
-                    )
+                    # 2. 修正用フォーム
+                    with st.form("admin_matter_fix"):
+                        st.write("🔧 **ステータスの変更設定**")
+                        new_status = st.selectbox(
+                            "変更後のステータスを選択", 
+                            options=[2, 3, 4, 5, 6], 
+                            format_func=lambda x: status_map.get(x, "不明")
+                        )
 
-                    reason_options = [
-                        "操作ミスによる救済（差し戻し依頼）",
-                        "承認ルートの誤設定に伴うリセット",
-                        "退職・異動に伴う権限代行修正",
-                        "システム不具合による整合性確保"
-                    ]
-                    selected_reason = st.selectbox("修正理由を選択（固定）", options=reason_options)
+                        reason_options = [
+                            "操作ミスによる救済（差し戻し依頼）",
+                            "承認ルートの誤設定に伴うリセット",
+                            "退職・異動に伴う権限代行修正",
+                            "システム不具合による整合性確保"
+                        ]
+                        selected_reason = st.selectbox("修正理由を選択（固定）", options=reason_options)
 
-                    if st.form_submit_button("🚨 ステータスを強制変更する"):
-                        admin_id = st.session_state.get('user_id', 'UnknownAdmin')
-                        fixed_remark = f"管理者({admin_id})による修正：{selected_reason}"
-                        
-                        # 証跡コメントを先頭に追加
-                        new_remarks = f"【{fixed_remark}】\n{current_remarks}"
-                        
-                        # 保存処理 (Supabase)
-                        supabase.table("TB_matter").update({
-                            "status_id": new_status,
-                            "remarks": new_remarks
-                        }).eq("matter_id", actual_id).execute()
-                        
-                        st.success(f"✅ 案件 {actual_id} の証跡を刻み、更新を完了しました。")
-                        time.sleep(1.0)
-                        st.rerun()
+                        if st.form_submit_button("🚨 ステータスを強制変更する"):
+                            admin_id = st.session_state.get('user_id', 'UnknownAdmin')
+                            fixed_remark = f"管理者({admin_id})による修正：{selected_reason}"
+                            
+                            # 証跡コメントを先頭に追加
+                            new_remarks = f"【{fixed_remark}】\n{current_remarks}"
+                            
+                            # 保存処理 (Supabase) - DBの生のIDを使って確実に更新
+                            supabase.table("TB_matter").update({
+                                "status_id": new_status,
+                                "remarks": new_remarks
+                            }).eq("matter_id", actual_db_id).execute()
+                            
+                            st.success(f"✅ 案件 {clean_id} の証跡を刻み、更新を完了しました。")
+                            time.sleep(1.0)
+                            st.rerun()
+                else:
+                    st.error(f"❌ 案件ID「{clean_id}」は見つかりませんでした。正確に入力されているか確認してください。")
             else:
-                st.error(f"❌ 案件ID「{target_id_input}」は見つかりませんでした。\n\n※入力された文字：{clean_id}")
+                 st.error("データベースに案件が1件も登録されていません。")
                 
         except Exception as e:
-            # カラム不足などの致命的なエラーはこちらに表示されます
-            st.error(f"データベース検索中にエラーが発生しました: {e}")
+            st.error(f"データベース処理中にエラーが発生しました: {e}")
     else:
         st.caption("案件IDを入力してEnterを押すと、詳細が表示されます。")

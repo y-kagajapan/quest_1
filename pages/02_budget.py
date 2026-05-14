@@ -57,31 +57,44 @@ user_team = st.session_state.get('team_id')
 try:
     supabase = get_db_connection()
     
-    # --- Supabaseからデータを取得 ---
+    # --- Supabaseから全データを取得 (API側での神経質なフィルタを外し、Pandasで処理する) ---
     res_team = supabase.table("TB_team").select("*").execute()
     df_team = pd.DataFrame(res_team.data)
     
-    res_budget = supabase.table("TB_budget").select("*").eq("fiscal_year", 2026).execute()
+    res_budget = supabase.table("TB_budget").select("*").execute()
     df_budget = pd.DataFrame(res_budget.data)
     
-    res_matter = supabase.table("TB_matter").select("*").eq("fiscal_year", 2026).eq("is_hidden", 0).execute()
+    res_matter = supabase.table("TB_matter").select("*").execute()
     df_matter = pd.DataFrame(res_matter.data)
 
-    # 強制的に「数値(float)」に変換
+    # --- Pandasによる堅牢な型変換とフィルタリング ---
+    # TB_matter
     if not df_matter.empty:
+        # 文字と数字の壁を壊す
+        df_matter['fiscal_year'] = pd.to_numeric(df_matter['fiscal_year'], errors='coerce')
+        df_matter['is_hidden'] = pd.to_numeric(df_matter['is_hidden'], errors='coerce').fillna(0)
+        
+        # ここで 2026年度 かつ 除外されていない(0) データに絞る
+        df_matter = df_matter[(df_matter['fiscal_year'] == 2026) & (df_matter['is_hidden'] == 0)]
+        
         df_matter['team_id'] = pd.to_numeric(df_matter['team_id'], errors='coerce')
         df_matter['status_id'] = pd.to_numeric(df_matter['status_id'], errors='coerce')
-        df_matter['fixed_amount'] = pd.to_numeric(df_matter['fixed_amount'], errors='coerce').fillna(0)
         df_matter['est_amount'] = pd.to_numeric(df_matter['est_amount'], errors='coerce').fillna(0)
+        df_matter['fixed_amount'] = pd.to_numeric(df_matter['fixed_amount'], errors='coerce').fillna(0)
         
+    # TB_team
     if not df_team.empty:
         df_team['team_id'] = pd.to_numeric(df_team['team_id'], errors='coerce')
 
+    # TB_budget
     if not df_budget.empty:
+        df_budget['fiscal_year'] = pd.to_numeric(df_budget['fiscal_year'], errors='coerce')
+        df_budget = df_budget[df_budget['fiscal_year'] == 2026]
+        
         df_budget['team_id'] = pd.to_numeric(df_budget['team_id'], errors='coerce')
         df_budget['total_budget'] = pd.to_numeric(df_budget['total_budget'], errors='coerce').fillna(0)
 
-    # 権限による絞り込み
+    # 権限による部署絞り込み（本部(4)以外は自部署のみ）
     if user_role != 4:
         df_team = df_team[df_team["team_id"] == float(user_team)]
 
@@ -97,7 +110,7 @@ try:
             if not b_match.empty:
                 total_b = b_match.iloc[0]["total_budget"]
 
-        # ★修正ポイント：承認済(5,6)も、実績金額ではなく「概算予算(est_amount)」で集計！
+        # 加賀さんのロジック：承認済(5,6)も、申請中(3,4)も「概算予算(est_amount)」で集計する
         appr_sum = 0
         appl_sum = 0
         if not df_matter.empty:
@@ -196,14 +209,25 @@ else:
         
         if res_t.data:
             s_team_id = res_t.data[0]["team_id"]
-            res_m = supabase_detail.table("TB_matter").select("matter_id, matter_title, status_id, is_hidden, est_amount, fixed_amount").eq("team_id", s_team_id).eq("fiscal_year", 2026).execute()
+            
+            # APIでのフィルタを外し、全件取得してからPandasでフィルタする（型エラー回避）
+            res_m = supabase_detail.table("TB_matter").select("matter_id, matter_title, status_id, is_hidden, est_amount, fixed_amount, team_id, fiscal_year").execute()
             df_details = pd.DataFrame(res_m.data)
 
             if not df_details.empty:
+                df_details['team_id'] = pd.to_numeric(df_details['team_id'], errors='coerce')
+                df_details['fiscal_year'] = pd.to_numeric(df_details['fiscal_year'], errors='coerce')
+                
+                # ここで該当チーム・2026年度に絞る
+                df_details = df_details[(df_details['team_id'] == float(s_team_id)) & (df_details['fiscal_year'] == 2026)]
+
+            if not df_details.empty:
+                # status_idを確実に数値にしてからマップする
+                df_details['status_id'] = pd.to_numeric(df_details['status_id'], errors='coerce')
                 df_details['ステータス'] = df_details['status_id'].map(status_name_map)
 
                 def apply_detail_style(row):
-                    if row.get('is_hidden') == 1:
+                    if pd.to_numeric(row.get('is_hidden', 0), errors='coerce') == 1:
                         return ['color: #a0a0a0; background-color: #f9f9f9; font-style: italic;'] * len(row)
                     return [''] * len(row)
 

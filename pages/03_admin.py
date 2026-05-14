@@ -272,8 +272,8 @@ elif st.session_state.admin_page == "📝 案件修正":
             # 不正を防ぐため、余計な変換はせず「前後の空白削除」のみ行う（厳密な完全一致用）
             clean_id = target_id_input.strip()
             
-            # 【最強の解決策】予算画面と同じく、APIの通信フィルタを外し、Pandasで完全一致検索を行う
-            res_matter = supabase.table("TB_matter").select("matter_id, matter_title, status_id, remarks").execute()
+            # ★修正: 細かい列指定によるエラーを防ぐため、他の画面と同じく `select("*")` で確実に全件取得する
+            res_matter = supabase.table("TB_matter").select("*").execute()
             df_matter = pd.DataFrame(res_matter.data)
             
             if not df_matter.empty:
@@ -286,7 +286,7 @@ elif st.session_state.admin_page == "📝 案件修正":
                     actual_db_id = target_data['matter_id'] # 更新用にDBの生のIDを保持
                     m_title = target_data['matter_title']
                     s_id = int(target_data['status_id']) if pd.notna(target_data['status_id']) else 1
-                    current_remarks = target_data['remarks'] if target_data['remarks'] else ""
+                    current_remarks = target_data['remarks'] if pd.notna(target_data['remarks']) and target_data['remarks'] else ""
                     
                     status_map = {1:"起案中", 2:"差し戻し", 3:"部署承認中", 4:"本部回議中", 5:"最終承認済", 6:"完了"}
                     current_status_text = status_map.get(s_id, f"不明(ID:{s_id})")

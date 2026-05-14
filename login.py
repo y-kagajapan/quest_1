@@ -7,8 +7,8 @@ initial_sidebar_state="expanded" # 最初から開いておくが、中身は自
 )
 
 def get_db_connection():
-    url = st.secrets["https://mqsonsdxvvfqmoutkrmr.supabase.co"]
-    key = st.secrets["sb_secret_yvdwP4O4hELi0og0ayCIJQ_3Gj24fKI"]
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
 
 # 2. 強力な目隠し（サイドバーを中身ごと消す設定）

@@ -67,7 +67,7 @@ try:
     res_matter = supabase.table("TB_matter").select("*").eq("fiscal_year", 2026).eq("is_hidden", 0).execute()
     df_matter = pd.DataFrame(res_matter.data)
 
-    # ★修正ポイント：文字と数字のすれ違いを防ぐため、強制的に「数値(float)」に変換
+    # 強制的に「数値(float)」に変換
     if not df_matter.empty:
         df_matter['team_id'] = pd.to_numeric(df_matter['team_id'], errors='coerce')
         df_matter['status_id'] = pd.to_numeric(df_matter['status_id'], errors='coerce')
@@ -81,7 +81,7 @@ try:
         df_budget['team_id'] = pd.to_numeric(df_budget['team_id'], errors='coerce')
         df_budget['total_budget'] = pd.to_numeric(df_budget['total_budget'], errors='coerce').fillna(0)
 
-    # 権限による絞り込み（本部以外は自部署のみ）
+    # 権限による絞り込み
     if user_role != 4:
         df_team = df_team[df_team["team_id"] == float(user_team)]
 
@@ -97,12 +97,12 @@ try:
             if not b_match.empty:
                 total_b = b_match.iloc[0]["total_budget"]
 
-        # 加賀さんの集計ロジック（ステータス5,6は確定額、3,4は概算）
+        # ★修正ポイント：承認済(5,6)も、実績金額ではなく「概算予算(est_amount)」で集計！
         appr_sum = 0
         appl_sum = 0
         if not df_matter.empty:
             m_match = df_matter[df_matter["team_id"] == t_id]
-            appr_sum = m_match[m_match["status_id"].isin([5, 6])]["fixed_amount"].sum()
+            appr_sum = m_match[m_match["status_id"].isin([5, 6])]["est_amount"].sum()
             appl_sum = m_match[m_match["status_id"].isin([3, 4])]["est_amount"].sum()
 
         data_list.append({

@@ -7,9 +7,9 @@ initial_sidebar_state="expanded" # 最初から開いておくが、中身は自
 )
 
 def get_db_connection():
-    conn = sqlite3.connect('database.db')
-    conn.row_factory = sqlite3.Row 
-    return conn
+    url = st.secrets["https://mqsonsdxvvfqmoutkrmr.supabase.co"]
+    key = st.secrets["sb_secret_yvdwP4O4hELi0og0ayCIJQ_3Gj24fKI"]
+    return create_client(url, key)
 
 # 2. 強力な目隠し（サイドバーを中身ごと消す設定）
 if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
@@ -45,14 +45,14 @@ with col2:
         submit_button = st.form_submit_button("ログイン", use_container_width=True)
         
         if submit_button:
-            conn = get_db_connection()
-            cur = conn.cursor()
+            supabase = get_db_connection()
             
-            # 物理設計書 TB_ID に基づいて照合
-            query = "SELECT user_id, team_id, post_id FROM TB_ID WHERE user_id = ? AND password = ?"
-            cur.execute(query, (user_id, password))
-            user_data = cur.fetchone()
-            conn.close()
+            # SupabaseのテーブルからIDとパスワードを照合
+            response = supabase.table("TB_ID").select("user_id, team_id, post_id").eq("user_id", user_id).eq("password", password).execute()
+            
+            # データが見つかったか判定（リストが空でなければ成功）
+            user_data_list = response.data
+            user_data = user_data_list[0] if user_data_list else None
 
             if user_data:
                 st.session_state['logged_in'] = True

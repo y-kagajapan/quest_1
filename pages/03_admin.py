@@ -1,28 +1,27 @@
 import streamlit as st
+import sqlite3
 import pandas as pd
 import re
 import time
-from supabase import create_client # ★sqlite3やosを削除し、Supabaseを追加
+import os
 
-# --- 権限チェック：管理者以外は追い返す ---
+
+# --- 権限チェック：管理者(post_id=1)以外は追い返す ---
 if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
     st.switch_page("login.py")
     st.stop()
 
-# B. 一般ユーザーが紛れ込んだら追い返す
+# B. 一般ユーザー（post_idが1以外）が紛れ込んだら追い返す
 if st.session_state.get('user_id') != 'admin':
     st.error("システム管理権限がありません。")
     st.switch_page("pages/01_details.py")
     st.stop()
 # ----------------------------------------------
 
-# --- 1. 環境設定 (Supabaseへの接続) ---
-def get_db_connection():
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+db_path = os.path.join(current_dir, "../database.db")
 
-# 2. ページ設定
+# 1. ページ設定
 st.set_page_config(layout="wide", page_title="システム管理")
 
 st.markdown(
@@ -66,41 +65,41 @@ st.title(f"⚙️ {st.session_state.admin_page}")
 # ==========================================
 if st.session_state.admin_page == "👤 ユーザー管理":
     try:
-        supabase = get_db_connection()
+        # --- パスの自動解決コードを追加 ---
+        import os
+        # 03_admin.pyから見て「一つ上の階層にあるdatabase.db」を絶対パスで取得
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        db_path = os.path.join(current_dir, "../database.db")
+        
+        # 修正：固定のパスではなく、計算した db_path を使う
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        # ------------------------------
 
-        # 1. 必要なデータをSupabaseから取得してPandasで結合
-        res_id = supabase.table("TB_ID").select("*").execute()
-        res_staff = supabase.table("TB_staff").select("*").execute()
-        res_team = supabase.table("TB_team").select("*").execute()
-        res_post = supabase.table("TB_post").select("*").execute()
-
-        df_id = pd.DataFrame(res_id.data)
-        df_staff = pd.DataFrame(res_staff.data)
-        df_teams = pd.DataFrame(res_team.data)
-        df_posts = pd.DataFrame(res_post.data)
-
-        if not df_id.empty:
-            df_all = df_id.merge(df_staff, on="staff_id", how="left")
-            df_all = df_all.merge(df_teams, on="team_id", how="left")
-            df_all = df_all.merge(df_posts, on="post_id", how="left")
-            
-            # 列名の整形
-            df_all = df_all.rename(columns={
-                "user_id": "ログインID",
-                "staff_name": "名前",
-                "team_name": "所属部署",
-                "post_name": "役職",
-                "password": "パスワード"
-            })
-        else:
-            df_all = pd.DataFrame(columns=["ログインID", "名前", "所属部署", "役職", "パスワード", "team_id", "post_id", "staff_id"])
+        # 1. 必要なデータを一度に取得
+        df_all = pd.read_sql('''
+            SELECT 
+                I.user_id AS ログインID, 
+                S.staff_name AS 名前, 
+                T.team_name AS 所属部署, 
+                IFNULL(P.post_name, '設定なし') AS 役職,
+                I.password AS パスワード,
+                I.team_id,
+                I.post_id
+            FROM TB_ID I
+            LEFT JOIN TB_staff S ON I.staff_id = S.staff_id
+            LEFT JOIN TB_team T ON I.team_id = T.team_id
+            LEFT JOIN TB_post P ON I.post_id = P.post_id
+        ''', conn)
+        df_teams = pd.read_sql('SELECT * FROM TB_team', conn)
+        df_posts = pd.read_sql('SELECT * FROM TB_post', conn)
+        conn.close()
 
         # 一覧表の表示
         df_show = df_all[['ログインID', '名前', '所属部署', '役職']].copy()
         df_show['パスワード'] = '********'
         df_show['役職'] = df_show['役職'].fillna('設定なし')
 
-        # event変数に代入し、選択可能にします
+        # event変数に代入し、選択可能(selection_mode="single-row")にします
         event = st.dataframe(
             df_show, 
             use_container_width=True, 
@@ -123,23 +122,26 @@ if st.session_state.admin_page == "👤 ユーザー管理":
             st.warning("👆 上の表から編集したいユーザーをタップして選択してください。")
             st.stop()
         
-        # 表示データのクレンジング
+        # --- 【追加】表示データのクレンジング ---
+        # 画面上で None と表示されるのを防ぐ
         display_post = user_data["役職"] if pd.notna(user_data["役職"]) else "設定なし"
 
         # 編集フォーム
         with st.form("edit_user_form"):
             col1, col2 = st.columns(2)
             with col1:
+                # 【追加箇所】名前の書き換え
                 new_name = st.text_input("名前（スタッフ名）", value=user_data["名前"])
+                # パスワード
                 new_pw = st.text_input("新しいパスワード", value=user_data["パスワード"], type="password")
             with col2:
                 # 部署選択
                 team_list = df_teams["team_name"].tolist()
                 current_team = user_data["所属部署"]
                 new_team_name = st.selectbox("所属部署変更", options=team_list, index=team_list.index(current_team))
-                
                 # 役職選択
                 post_list = df_posts["post_name"].tolist()
+                # None対策：現在の役職がNoneなら「担当」をデフォルトにする等の処理
                 current_post = user_data["役職"] if user_data["役職"] != "設定なし" else post_list[0]
                 new_post_name = st.selectbox("役職変更", options=post_list, index=post_list.index(current_post))
             
@@ -148,23 +150,24 @@ if st.session_state.admin_page == "👤 ユーザー管理":
                 if not re.fullmatch(r'[a-zA-Z0-9]+', new_pw):
                     st.error("❌ パスワードは半角英数字のみです。")
                 else:
-                    # 選ばれた部署と役職のIDを取得
                     new_team_id = int(df_teams[df_teams["team_name"] == new_team_name]["team_id"].values[0])
-                    new_post_id = int(df_posts[df_posts["post_name"] == new_post_name]["post_id"].values[0])
-                    target_staff_id = user_data["staff_id"]
                     
-                    # Supabaseへの保存処理（更新）
-                    # ① パスワード、部署、役職の更新 (TB_ID)
-                    supabase.table("TB_ID").update({
-                        "password": new_pw, 
-                        "team_id": new_team_id,
-                        "post_id": new_post_id # ★修正漏れを補強
-                    }).eq("user_id", target_user_id).execute()
+                    # 修正：ここを db_path に変えるだけ！ (tryは追加しない)
+                    conn_update = sqlite3.connect(db_path, check_same_thread=False)
+                    cursor = conn_update.cursor()
                     
-                    # ② スタッフ名の更新 (TB_staff)
-                    supabase.table("TB_staff").update({
-                        "staff_name": new_name
-                    }).eq("staff_id", target_staff_id).execute()
+                    # ① パスワードと部署の更新
+                    cursor.execute('UPDATE TB_ID SET password = ?, team_id = ? WHERE user_id = ?', 
+                                   (new_pw, new_team_id, target_user_id))
+                    
+                    # ② スタッフ名の更新
+                    cursor.execute('''
+                        UPDATE TB_staff SET staff_name = ? 
+                        WHERE staff_id = (SELECT staff_id FROM TB_ID WHERE user_id = ?)
+                    ''', (new_name, target_user_id))
+                    
+                    conn_update.commit()
+                    conn_update.close()
                     
                     st.success(f"✅ {new_name} さんの情報を更新しました！")
                     time.sleep(1.0)
@@ -178,18 +181,18 @@ if st.session_state.admin_page == "👤 ユーザー管理":
 # ==========================================
 elif st.session_state.admin_page == "🏢 部署管理":
     try:
-        supabase = get_db_connection()
-        
-        # ① 表示用データ取得
-        res_dept = supabase.table("TB_team").select("*").execute()
-        df_dept_view = pd.DataFrame(res_dept.data)
+        # ① 表示用
+        conn = sqlite3.connect(db_path, check_same_thread=False) 
+        df_dept_view = pd.read_sql('SELECT * FROM TB_team', conn)
+        df_dept_view = pd.read_sql('SELECT * FROM TB_team', conn)
+        conn.close()
         
         # 上段：部署一覧
         st.subheader("部署マスター一覧")
         
         event_dept = st.dataframe(
             df_dept_view.rename(columns={'team_id':'ID', 'team_name':'部署名'}), 
-            use_container_width=False,  
+            use_container_width=False,  # ★ここをFalseに。これで右側の余白を消せます
             hide_index=True,
             selection_mode="single-row",
             on_select="rerun",
@@ -200,15 +203,17 @@ elif st.session_state.admin_page == "🏢 部署管理":
         )
         
         st.divider()
-        # 下段：2カラム
+        # 下段：2カラム（左に変更、右に追加）
         col_d1, col_d2 = st.columns(2)
         
         with col_d1:
             st.write("🔄 **部署名の名称変更**")
             
+            # 表の選択状態を取得
             selected_dept_rows = event_dept.selection.rows
             
             if selected_dept_rows:
+                # 選択された行のデータを特定
                 row_idx = selected_dept_rows[0]
                 target_t_id = df_dept_view.iloc[row_idx]["team_id"]
                 t_name_val = df_dept_view.iloc[row_idx]["team_name"]
@@ -218,16 +223,26 @@ elif st.session_state.admin_page == "🏢 部署管理":
                     new_t_name = st.text_input("新しい名称", value=t_name_val)
                     
                     if st.form_submit_button("名称変更を実行"):
+                        # IDを整数型に変換（これが格納成功の鍵でした）
                         t_id_int = int(target_t_id)
                         
-                        # 保存処理 (Supabase)
-                        supabase.table("TB_team").update({"team_name": new_t_name}).eq("team_id", t_id_int).execute()
+                        # 保存処理
+                        with sqlite3.connect(db_path) as conn_edit:
+                            cursor = conn_edit.cursor()
+                            cursor.execute(
+                                'UPDATE TB_team SET team_name = ? WHERE team_id = ?', 
+                                (new_t_name, t_id_int)
+                            )
+                            conn_edit.commit()
 
+                        # 画面への通知とリフレッシュ
                         st.success(f"✅ 「{new_t_name}」に更新しました。")
                         time.sleep(0.5)
                         st.rerun()
             else:
+                # 【B. 何も選ばれていない場合】
                 st.info("👆 上の表から修正したい部署を選択してください。")
+                # ★ここにボタンや入力欄は置かない（空振りを防ぐため）
         
         with col_d2:
             st.write("🆕 **新規部署の追加**")
@@ -235,22 +250,31 @@ elif st.session_state.admin_page == "🏢 部署管理":
                 add_id = st.text_input("新規部署ID")
                 add_name = st.text_input("新規部署名")
                 if st.form_submit_button("追加"):
+                    # 既存のIDと名前のリストを取得
                     existing_ids = df_dept_view["team_id"].astype(str).values
                     existing_names = df_dept_view["team_name"].values
                     
                     if str(add_id) in existing_ids:
                         st.error(f"❌ エラー：ID {add_id} は既に存在します。")
+                    
+                    # ★追加：名前の重複チェック
                     elif add_name in existing_names:
                         st.error(f"❌ エラー：部署名「{add_name}」は既に存在します。")
+                    
                     elif not add_id:
                         st.warning("⚠️ IDを入力してください")
                     elif not add_name:
                         st.warning("⚠️ 部署名を入力してください")
                     else:
-                        # 新規追加処理 (Supabase)
-                        supabase.table("TB_team").insert({"team_id": int(add_id), "team_name": add_name}).execute()
+                        # ここにINSERT処理...
+                        conn_add = sqlite3.connect(db_path, check_same_thread=False)
+                        cursor = conn_add.cursor()
+                        cursor.execute('INSERT INTO TB_team (team_id, team_name) VALUES (?, ?)', (add_id, add_name))
+                        conn_add.commit()
+                        conn_add.close()
                         
                         st.success(f"✅ 部署 {add_name} を追加しました！")
+                        import time
                         time.sleep(1.0)
                         st.rerun()
     except Exception as e:
@@ -266,73 +290,58 @@ elif st.session_state.admin_page == "📝 案件修正":
     target_id_input = st.text_input("修正する案件IDを入力してください", placeholder="例: 2026-D1-001")
 
     if target_id_input:
-        try:
-            supabase = get_db_connection()
-            
-            # 不正を防ぐため、余計な変換はせず「前後の空白削除」のみ行う（厳密な完全一致用）
-            clean_id = target_id_input.strip()
-            
-            # ★修正: 細かい列指定によるエラーを防ぐため、他の画面と同じく `select("*")` で確実に全件取得する
-            res_matter = supabase.table("TB_matter").select("*").execute()
-            df_matter = pd.DataFrame(res_matter.data)
-            
-            if not df_matter.empty:
-                # データベース側の見えない空白なども考慮して、純粋な文字同士で「完全一致」するか判定
-                df_matter['matter_id_clean'] = df_matter['matter_id'].astype(str).str.strip()
-                match_df = df_matter[df_matter['matter_id_clean'] == clean_id]
+        # DBを検索
+        with sqlite3.connect(db_path) as conn:
+            query = "SELECT matter_title, status_id FROM TB_matter WHERE matter_id = ?"
+            res = pd.read_sql(query, conn, params=(target_id_input,))
 
-                if not match_df.empty:
-                    target_data = match_df.iloc[0]
-                    actual_db_id = target_data['matter_id'] # 更新用にDBの生のIDを保持
-                    m_title = target_data['matter_title']
-                    s_id = int(target_data['status_id']) if pd.notna(target_data['status_id']) else 1
-                    current_remarks = target_data['remarks'] if pd.notna(target_data['remarks']) and target_data['remarks'] else ""
+        if not res.empty:
+            m_title = res.iloc[0]['matter_title']
+            s_id = int(res.iloc[0]['status_id'])
+            status_map = {1:"起案中", 2:"差し戻し", 3:"部署承認中", 4:"本部回議中", 5:"最終承認済", 6:"完了"}
+            current_status_text = status_map.get(s_id, f"不明(ID:{s_id})")
+
+            # 確認用表示
+            st.info(f"✅ **対象案件を確認しました**\n\n**案件名:** {m_title}  \n**現在のステータス:** `{current_status_text}`")
+
+            # 2. 修正用フォーム
+            with st.form("admin_matter_fix"):
+                st.write("🔧 **ステータスの変更設定**")
+                new_status = st.selectbox(
+                    "変更後のステータスを選択", 
+                    options=[2, 3, 4, 5, 6], 
+                    format_func=lambda x: status_map.get(x, "不明")
+                )
+
+                # 修正理由を固定。selectboxなので文字の改ざんや消去は不可能です。
+                reason_options = [
+                    "操作ミスによる救済（差し戻し依頼）",
+                    "承認ルートの誤設定に伴うリセット",
+                    "退職・異動に伴う権限代行修正",
+                    "システム不具合による整合性確保"
+                ]
+                selected_reason = st.selectbox("修正理由を選択（固定）", options=reason_options)
+
+                if st.form_submit_button("🚨 ステータスを強制変更する"):
+                    # 実行者のIDを取得して、誰がいつ何をしたか証跡を確定させる
+                    admin_id = st.session_state.get('user_id', 'UnknownAdmin')
+                    fixed_remark = f"管理者({admin_id})による修正：{selected_reason}"
                     
-                    status_map = {1:"起案中", 2:"差し戻し", 3:"部署承認中", 4:"本部回議中", 5:"最終承認済", 6:"完了"}
-                    current_status_text = status_map.get(s_id, f"不明(ID:{s_id})")
-
-                    # 確認用表示
-                    st.info(f"✅ **対象案件を確認しました**\n\n**案件ID:** {clean_id}\n**案件名:** {m_title}  \n**現在のステータス:** `{current_status_text}`")
-
-                    # 2. 修正用フォーム
-                    with st.form("admin_matter_fix"):
-                        st.write("🔧 **ステータスの変更設定**")
-                        new_status = st.selectbox(
-                            "変更後のステータスを選択", 
-                            options=[2, 3, 4, 5, 6], 
-                            format_func=lambda x: status_map.get(x, "不明")
-                        )
-
-                        reason_options = [
-                            "操作ミスによる救済（差し戻し依頼）",
-                            "承認ルートの誤設定に伴うリセット",
-                            "退職・異動に伴う権限代行修正",
-                            "システム不具合による整合性確保"
-                        ]
-                        selected_reason = st.selectbox("修正理由を選択（固定）", options=reason_options)
-
-                        if st.form_submit_button("🚨 ステータスを強制変更する"):
-                            admin_id = st.session_state.get('user_id', 'UnknownAdmin')
-                            fixed_remark = f"管理者({admin_id})による修正：{selected_reason}"
-                            
-                            # 証跡コメントを先頭に追加
-                            new_remarks = f"【{fixed_remark}】\n{current_remarks}"
-                            
-                            # 保存処理 (Supabase) - DBの生のIDを使って確実に更新
-                            supabase.table("TB_matter").update({
-                                "status_id": new_status,
-                                "remarks": new_remarks
-                            }).eq("matter_id", actual_db_id).execute()
-                            
-                            st.success(f"✅ 案件 {clean_id} の証跡を刻み、更新を完了しました。")
-                            time.sleep(1.0)
-                            st.rerun()
-                else:
-                    st.error(f"❌ 案件ID「{clean_id}」は見つかりませんでした。正確に入力されているか確認してください。")
-            else:
-                 st.error("データベースに案件が1件も登録されていません。")
-                
-        except Exception as e:
-            st.error(f"データベース処理中にエラーが発生しました: {e}")
+                    with sqlite3.connect(db_path) as conn_update:
+                        cur = conn_update.cursor()
+                        # カラム名は定義書に基づき 'remarks' を使用
+                        cur.execute("""
+                            UPDATE TB_matter 
+                            SET status_id = ?, 
+                                remarks = '【' || ? || '】' || '\n' || COALESCE(remarks, '')
+                            WHERE matter_id = ?
+                        """, (new_status, fixed_remark, target_id_input))
+                        conn_update.commit()
+                    
+                    st.success(f"✅ 案件 {target_id_input} の証跡を刻み、更新を完了しました。")
+                    time.sleep(1.0)
+                    st.rerun()
+        else:
+            st.error(f"❌ 案件ID「{target_id_input}」は見つかりませんでした。")
     else:
         st.caption("案件IDを入力してEnterを押すと、詳細が表示されます。")

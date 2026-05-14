@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import os
 from supabase import create_client
 
 # --- 1. 環境設定 ---
@@ -192,12 +191,12 @@ else:
     }
 
     try:
-        supabase = get_db_connection()
-        res_t = supabase.table("TB_team").select("team_id").eq("team_name", selected_dept).execute()
+        supabase_detail = get_db_connection()
+        res_t = supabase_detail.table("TB_team").select("team_id").eq("team_name", selected_dept).execute()
         
         if res_t.data:
             s_team_id = res_t.data[0]["team_id"]
-            res_m = supabase.table("TB_matter").select("matter_id, matter_title, status_id, is_hidden, est_amount, fixed_amount").eq("team_id", s_team_id).eq("fiscal_year", 2026).execute()
+            res_m = supabase_detail.table("TB_matter").select("matter_id, matter_title, status_id, is_hidden, est_amount, fixed_amount").eq("team_id", s_team_id).eq("fiscal_year", 2026).execute()
             df_details = pd.DataFrame(res_m.data)
 
             if not df_details.empty:

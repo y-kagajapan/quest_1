@@ -1,6 +1,6 @@
 1．アプリケーション名: 開発管理統合システム
 
-2．デプロイURL: https://quest1-nncu5pzzj8qwk3uvyrugpa.streamlit.app/
+2．デプロイURL: [https://quest1-nncu5pzzj8qwk3uvyrugpa.streamlit.app/](https://quest1-hdpucgqcawvkvcidpewdtk.streamlit.app/)
 
 　※アプリがスリープ状態（Zzzz表示）になっている場合は、画面中央のボタンを押して再起動してください。数十秒でログイン画面が表示されます。
 

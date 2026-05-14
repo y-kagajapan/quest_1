@@ -1,11 +1,8 @@
 # 動作確認用テストアカウント一覧
 
-URL　[https://quest1-nncu5pzzj8qwk3uvyrugpa.streamlit.app/](https://dashflowdevelopment.streamlit.app/)
-
-※アプリがスリープ状態（Zzzz表示）になっている場合は、画面中央のボタンを押して再起動してください。数十秒でログイン画面が表示されます。
+URL　https://quest1-nncu5pzzj8qwk3uvyrugpa.streamlit.app/
 
 本アプリケーションの動作確認には、以下のどのアカウントでもログイン可能です。
-
 パスワードは、管理者（admin）以外は共通で `pass123` となっています。
 
 | 役割 | 部署 | 名前 | ユーザーID | パスワード |
@@ -24,3 +21,4 @@ URL　[https://quest1-nncu5pzzj8qwk3uvyrugpa.streamlit.app/](https://dashflowdev
 | **一般申請者** | 開発三部 | 山根 | D3S02 | pass123 |
 | **一般申請者** | 開発三部 | 後藤 | D3S03 | pass123 |
 | **本部システム** | 本部 | 情シス | admin | admin789 |
+

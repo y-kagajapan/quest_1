@@ -1,5 +1,4 @@
 import streamlit as st
-import sqlite3
 from supabase import create_client
 
 st.set_page_config(page_title="開発管理統合システム", 
@@ -57,11 +56,12 @@ with col2:
 
             if user_data:
                 st.session_state['logged_in'] = True
-                st.session_state['user_id'] = user_data[0]   # 例: 'D1S01' など
-                st.session_state['team_id'] = user_data[1]
-                st.session_state['post_id'] = user_data[2]   # 役職ID
-                st.session_state['role_id'] = user_data[2] 
-                st.session_state['user_name'] = user_data[0]
+                # 【修正箇所】数字のインデックスから、列名（キー）での取得に変更
+                st.session_state['user_id'] = user_data['user_id']
+                st.session_state['team_id'] = user_data['team_id']
+                st.session_state['post_id'] = user_data['post_id']
+                st.session_state['role_id'] = user_data['post_id']
+                st.session_state['user_name'] = user_data['user_id']
                 
                 if st.session_state['user_id'] == 'admin':
                     st.success("管理者としてログインしました")
@@ -75,4 +75,3 @@ with col2:
 # ログイン済みの場合のメッセージ
 if st.session_state.get('logged_in'):
     st.info("ログイン済みです。左のサイドバーからメニューを選択してください。")
-    # ログイン後はサイドバーを自動で開く設定なども可能

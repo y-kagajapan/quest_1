@@ -87,7 +87,7 @@ def save_matter(data, is_new=True):
                 "matter_id": new_id, "fiscal_year": 2026, "matter_title": data['title'], "team_id": st.session_state.team_id,
                 "user_id": st.session_state.user_id, "purpose": data['purpose'], "summary": data['summary'], "detail": data['detail'],
                 "category_id": data['cat_id'], "est_man_hours": data['man_hours'], "est_amount": data['amount'], "status_id": data['status'],
-                "progress_rate": 0, "start_date": data['s_date'], "end_date": data['e_date'], "monthly_report": data['report'],
+                "progress_rate": data['progress'], "start_date": data['s_date'], "end_date": data['e_date'], "monthly_report": data['report'],
                 "remarks": data['remarks'], "budget_amount": data['budget'], "fixed_amount": data['fixed'],
                 "last_updated": now_str, "is_hidden": 0
             }).execute()
@@ -180,6 +180,10 @@ if not st.session_state.get('edit_mode'):
         # 階層データをフラット化
         df['team_name'] = df['TB_team'].apply(lambda x: x['team_name'] if x else "")
         df['staff_name'] = df['TB_ID'].apply(lambda x: x['TB_staff']['staff_name'] if x and x['TB_staff'] else "")
+        
+        # 💡【重要な安全弁】ステータスが6(完了)のものは、強制的に進捗を100%に補正する
+        df.loc[df['status_id'] == 6, 'progress_rate'] = 100
+
         # 日本語変換
         df['status_name'] = df['status_id'].map(status_name_map)
         df.loc[df['is_hidden'] == 1, 'status_name'] = "🗑️ 削除"
@@ -207,11 +211,12 @@ if not st.session_state.get('edit_mode'):
     today_str_hyphen = today_dt.strftime('%Y-%m-%d')
 
     if st.session_state.get('last_alert_date') != today_str_hyphen:
-        # 💡 overdue_df の判定条件に「is_hidden == 0」を追加します
+        # 💡【安全弁】ステータスが完了(6)のものはアラートから除外する
         overdue_df = df[
             (df['end_date'] < today_str_slash) & 
             (df['progress_rate'] < 100) & 
-            (df['is_hidden'] == 0)  # ✅ これで除外済み案件を無視します
+            (df['status_id'] != 6) & 
+            (df['is_hidden'] == 0)
         ]
         
         if not overdue_df.empty:
@@ -227,7 +232,7 @@ if not st.session_state.get('edit_mode'):
             return ['color: #a0a0a0; background-color: #f0f0f0; font-style: italic;'] * len(row)
 
         # 2. 100%完了案件：エメラルドグリーンで「達成」を強調
-        if row['progress_rate'] == 100:
+        if row['progress_rate'] == 100 or row['status_id'] == 6:
             return ['background-color: #c6f6d5; color: #22543d; font-weight: bold; text-decoration: line-through; border: 1px solid #38a169;'] * len(row)
 
         role = st.session_state.get('role_id')
@@ -243,8 +248,6 @@ if not st.session_state.get('edit_mode'):
         is_outdated = str(row['last_updated']) < limit_time # 放置されているか
         
         # 3. 【警告】の実行判定
-        # 💡 条件1：期限切れ または 放置
-        # 💡 条件2：ステータスが 3(課長承認待ち) 〜 5(承認済) であること（一時保存や差し戻し、完了を除外）
         if (is_overdue or is_outdated) and (3 <= status <= 5):
             return ['background-color: #ffffcc; font-weight: bold; border: 1px solid #ffcc00'] * len(row)
         
@@ -343,11 +346,12 @@ else:
     # 変数の確定
     user_role = st.session_state.get('role_id')
     status = row['status_id']
+
+    # 💡【重要な安全弁】完了状態なら、DBがどうあれ絶対に100%にする
+    if status == 6:
+        row['progress_rate'] = 100
+
     # --- 編集ロックの判定ロジック ---
-    user_role = st.session_state.get('role_id')
-    status = row['status_id']
-    
-    # 基本はロック状態(True)から開始
     is_core_disabled = True     # 案件名や予算など（申請内容）
     is_progress_disabled = True # 進捗・報告・備考（実績報告）
     
@@ -403,8 +407,10 @@ else:
         m_fixed = v2.number_input("実績金額", value=int(row['fixed_amount']), disabled=is_progress_disabled)
         if m_fixed > 0:
             v2.caption(f"📉 執行済: ¥{m_fixed:,.0f}") #
+            
         m_progress = v3.slider("進捗(%)", 0, 100, int(row['progress_rate']), disabled=is_progress_disabled)
-                # --- 開始日と期限日の入力欄 ---
+        
+        # --- 開始日と期限日の入力欄 ---
         d_col1, d_col2 = st.columns(2)
         # 文字列(YYYY/MM/DD)をdateオブジェクトに変換して表示
         try:
@@ -489,6 +495,10 @@ else:
                 st.error("❌ 完了（100%）にする場合は、報告欄に実績内容を記入してください。")
                 st.stop() 
             d['status'] = 6
+            
+        # 💡【重要な安全弁】ステータスが完了になったら、必ず進捗を100として送信する
+        if d['status'] == 6:
+            d['progress'] = 100
 
         if save_matter(d, is_new):
             st.session_state.edit_mode = None

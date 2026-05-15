@@ -270,30 +270,26 @@ if not st.session_state.get('edit_mode'):
     styled_df = df_display.style.apply(highlight_todo, axis=1)
     
     # 唯一の表示部分：ここで項目名を日本語に変え、不要なIDを隠します
-    # 1. 直接 st.dataframe を呼び出す (event = は不要)
     st.dataframe(
         styled_df, 
         use_container_width=True, 
         hide_index=True, 
         selection_mode="single-row", 
         on_select="rerun",
-        key="matter_table", # ★重要：これで選択状態を管理します
+        key="matter_table",
+        column_order=[
+            "matter_id", "matter_title", "team_name", "staff_name", 
+            "last_updated", "end_date", "progress_rate", "status_name"
+        ],
         column_config={
             "matter_id": "案件番号",
-            "fiscal_year": None,
             "matter_title": "案件名",
             "team_name": "部署名",
             "staff_name": "担当者",
-            "status_name": "ステータス",
-            "purpose": None,
-            "summary": None,
             "last_updated": "最終更新",
-            "est_amount": st.column_config.NumberColumn("概算予算", format="¥%,.0f"),
-            "progress_rate": st.column_config.NumberColumn("進捗", format="%d%%"),
             "end_date": "期限日",
-            "status_id": None,
-            "team_id": None,
-            "is_hidden": None
+            "progress_rate": st.column_config.NumberColumn("進捗", format="%d%%"),
+            "status_name": "ステータス"
         }
     )
 

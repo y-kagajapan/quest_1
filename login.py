@@ -1,9 +1,10 @@
 import streamlit as st
 from supabase import create_client
 
-st.set_page_config(page_title="開発管理統合システム", 
-layout="wide",
-initial_sidebar_state="expanded" # 最初から開いておくが、中身は自分で書く
+st.set_page_config(
+    page_title="開発管理統合システム", 
+    layout="wide",
+    initial_sidebar_state="expanded" # 最初から開いておくが、中身は自分で書く
 )
 
 def get_db_connection():

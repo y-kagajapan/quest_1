@@ -22,4 +22,5 @@
 | **一般申請者** | 開発三部 | 後藤 | D3S03 | pass123 |
 | **本部システム** | 本部 | 情シス | admin | admin789 |
 
-4．技術スタック: Python, Streamlit, SQLite
+4．技術スタック: Python, Streamlit, Supabase
+

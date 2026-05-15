@@ -41,21 +41,28 @@ if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
     st.stop()
 
 # セッション情報の復旧
-if "user_name" not in st.session_state:
+if "user_name" not in st.session_state or st.session_state.user_name == st.session_state.get('user_id') or "post_name" not in st.session_state:
+    from supabase import create_client
     try:
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT T2.staff_name, T1.team_id 
-            FROM TB_ID T1 
-            JOIN TB_staff T2 ON T1.staff_id = T2.staff_id 
-            WHERE T1.user_id = ?
-        """, (st.session_state.get('user_id'),))
-        res = cur.fetchone()
-        if res:
-            st.session_state.user_name = res[0]
-            st.session_state.team_id = res[1]
-        conn.close()
+        supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+        uid = st.session_state.get('user_id')
+        res_id = supabase.table("TB_ID").select("staff_id, post_id").eq("user_id", uid).execute()
+        
+        if res_id.data:
+            staff_id = res_id.data[0].get('staff_id')
+            post_id = res_id.data[0].get('post_id')
+            
+            # 名前を取得
+            if staff_id:
+                res_staff = supabase.table("TB_staff").select("staff_name").eq("staff_id", staff_id).execute()
+                if res_staff.data:
+                    st.session_state.user_name = res_staff.data[0]['staff_name']
+                    
+            # 役職名を取得
+            if post_id:
+                res_post = supabase.table("TB_post").select("post_name").eq("post_id", post_id).execute()
+                if res_post.data:
+                    st.session_state.post_name = res_post.data[0]['post_name']
     except:
         pass
 

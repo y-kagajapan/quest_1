@@ -40,34 +40,6 @@ if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
     st.switch_page("login.py")
     st.stop()
 
-# スタッフ情報をデータベースから確実に取得する
-if "user_name" not in st.session_state or st.session_state.user_name == st.session_state.get('user_id'):
-    try:
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        # TB_IDテーブルの役職カラム名「post_id」を使用して取得
-        cur.execute("""
-            SELECT T2.staff_name, T1.team_id, T1.post_id, T3.post_name
-            FROM TB_ID T1 
-            JOIN TB_staff T2 ON T1.staff_id = T2.staff_id 
-            LEFT JOIN TB_post T3 ON T1.post_id = T3.post_id
-            WHERE T1.user_id = ?
-        """, (st.session_state.get('user_id'),))
-        res = cur.fetchone()
-        if res:
-            st.session_state.user_name = res[0] 
-            st.session_state.team_id = res[1]
-            st.session_state.role_id = res[2] 
-            st.session_state.post_name = res[3]  # ここで「役職名」をセッションに保存
-        if res:
-            # 取得したスタッフ名をセット
-            st.session_state.user_name = res[0] 
-            st.session_state.team_id = res[1]
-            st.session_state.role_id = res[2] 
-        conn.close()
-    except Exception as e:
-        st.error(f"スタッフ情報の取得に失敗しました: {e}")
-
 # セッション情報の復旧
 if "user_name" not in st.session_state:
     try:

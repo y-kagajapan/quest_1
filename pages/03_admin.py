@@ -4,7 +4,7 @@ import re
 import time
 from supabase import create_client
 
-# --- 権限チェック：管理者以外は追い返す ---
+# --- 権限チェック ---
 if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
     st.switch_page("login.py")
     st.stop()
@@ -14,13 +14,12 @@ if st.session_state.get('user_id') != 'admin':
     st.switch_page("pages/01_details.py")
     st.stop()
 
-# --- 1. 環境設定 (Supabaseへの接続) ---
+# --- 1. 環境設定 ---
 def get_db_connection():
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
 
-# 2. ページ設定
 st.set_page_config(layout="wide", page_title="システム管理")
 
 st.markdown(
@@ -58,7 +57,6 @@ if st.session_state.admin_page == "👤 ユーザー管理":
     try:
         supabase = get_db_connection()
 
-        # Supabaseからデータ取得
         res_id = supabase.table("TB_ID").select("*").execute()
         res_staff = supabase.table("TB_staff").select("*").execute()
         res_team = supabase.table("TB_team").select("*").execute()
@@ -86,7 +84,6 @@ if st.session_state.admin_page == "👤 ユーザー管理":
 
         df_show = df_all[['ログインID', '名前', '所属部署', '役職']].copy()
         df_show['パスワード'] = '********'
-        df_show['役職'] = df_show['役職'].fillna('設定なし')
 
         event = st.dataframe(
             df_show, 
@@ -118,7 +115,7 @@ if st.session_state.admin_page == "👤 ユーザー管理":
                 new_team_name = st.selectbox("所属部署変更", options=team_list, index=team_list.index(current_team))
                 
                 post_list = df_posts["post_name"].tolist()
-                current_post = user_data["役職"] if user_data["役職"] != "設定なし" else post_list[0]
+                current_post = user_data["役職"] if user_data["役職"] in post_list else post_list[0]
                 new_post_name = st.selectbox("役職変更", options=post_list, index=post_list.index(current_post))
             
             if st.form_submit_button("情報を更新する"):
@@ -127,9 +124,10 @@ if st.session_state.admin_page == "👤 ユーザー管理":
                 else:
                     new_team_id = int(df_teams[df_teams["team_name"] == new_team_name]["team_id"].values[0])
                     new_post_id = int(df_posts[df_posts["post_name"] == new_post_name]["post_id"].values[0])
+                    
+                    # 文字列としてそのまま扱う（intの呪縛を解きました）
                     target_staff_id = user_data["staff_id"]
                     
-                    # ★修正：Supabaseへの確実な更新処理
                     supabase.table("TB_ID").update({
                         "password": str(new_pw).strip(), 
                         "team_id": new_team_id,
@@ -138,7 +136,7 @@ if st.session_state.admin_page == "👤 ユーザー管理":
                     
                     supabase.table("TB_staff").update({
                         "staff_name": str(new_name).strip()
-                    }).eq("staff_id", int(target_staff_id)).execute()
+                    }).eq("staff_id", target_staff_id).execute()
                     
                     st.success(f"✅ {new_name} さんの情報を更新しました！")
                     time.sleep(1.0)
@@ -187,8 +185,7 @@ elif st.session_state.admin_page == "🏢 部署管理":
                     new_t_name = st.text_input("新しい名称", value=t_name_val)
                     
                     if st.form_submit_button("名称変更を実行"):
-                        t_id_int = int(target_t_id)
-                        supabase.table("TB_team").update({"team_name": new_t_name}).eq("team_id", t_id_int).execute()
+                        supabase.table("TB_team").update({"team_name": new_t_name}).eq("team_id", int(target_t_id)).execute()
                         st.success(f"✅ 「{new_t_name}」に更新しました。")
                         time.sleep(0.5)
                         st.rerun()
@@ -201,17 +198,8 @@ elif st.session_state.admin_page == "🏢 部署管理":
                 add_id = st.text_input("新規部署ID")
                 add_name = st.text_input("新規部署名")
                 if st.form_submit_button("追加"):
-                    existing_ids = df_dept_view["team_id"].astype(str).values
-                    existing_names = df_dept_view["team_name"].values
-                    
-                    if str(add_id) in existing_ids:
-                        st.error(f"❌ エラー：ID {add_id} は既に存在します。")
-                    elif add_name in existing_names:
-                        st.error(f"❌ エラー：部署名「{add_name}」は既に存在します。")
-                    elif not add_id:
-                        st.warning("⚠️ IDを入力してください")
-                    elif not add_name:
-                        st.warning("⚠️ 部署名を入力してください")
+                    if not add_id or not add_name:
+                        st.warning("⚠️ IDと部署名を入力してください")
                     else:
                         supabase.table("TB_team").insert({"team_id": int(add_id), "team_name": add_name}).execute()
                         st.success(f"✅ 部署 {add_name} を追加しました！")
@@ -252,31 +240,22 @@ elif st.session_state.admin_page == "📝 案件修正":
                         format_func=lambda x: status_map.get(x, "不明")
                     )
 
-                    reason_options = [
-                        "操作ミスによる救済（差し戻し依頼）",
-                        "承認ルートの誤設定に伴うリセット",
-                        "退職・異動に伴う権限代行修正",
-                        "システム不具合による整合性確保"
-                    ]
-                    selected_reason = st.selectbox("修正理由を選択（固定）", options=reason_options)
+                    reason_options = ["操作ミスによる救済", "承認ルートの誤設定", "権限代行修正", "システム不具合"]
+                    selected_reason = st.selectbox("修正理由を選択", options=reason_options)
 
                     if st.form_submit_button("🚨 ステータスを強制変更する"):
                         admin_id = st.session_state.get('user_id', 'UnknownAdmin')
-                        fixed_remark = f"管理者({admin_id})による修正：{selected_reason}"
-                        new_remarks = f"【{fixed_remark}】\n{current_remarks}"
+                        new_remarks = f"【管理者({admin_id})修正：{selected_reason}】\n{current_remarks}"
                         
                         supabase.table("TB_matter").update({
                             "status_id": new_status,
                             "remarks": new_remarks
                         }).eq("matter_id", clean_id).execute()
                         
-                        st.success(f"✅ 案件 {clean_id} の証跡を刻み、更新を完了しました。")
+                        st.success(f"✅ 案件 {clean_id} を更新しました。")
                         time.sleep(1.0)
                         st.rerun()
             else:
                 st.error(f"❌ 案件ID「{clean_id}」は見つかりませんでした。")
-                
         except Exception as e:
-            st.error(f"データベース処理中にエラーが発生しました: {e}")
-    else:
-        st.caption("案件IDを入力してEnterを押すと、詳細が表示されます。")
+            st.error(f"エラー: {e}")

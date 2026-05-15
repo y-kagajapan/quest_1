@@ -479,9 +479,9 @@ else:
             else: # 自分のボールではない時（承認待ちを眺めている時など）
                 back = bt_col1.form_submit_button("🔙 戻る", key="btn_back_general")
 
-            # --- 除外ボタンの表示判定（ここは変えない） ---
+            # --- 除外ボタンの表示判定 ---
             show_hide_button = False
-            if user_role == 1 and status == 3:
+            if user_role == 1: # 課長はいつでも除外可能にする
                 show_hide_button = True
             elif user_role == 4 and (status == 4 or status == 5):
                 show_hide_button = True
@@ -533,11 +533,9 @@ else:
         
         if confirm:
             try:
-                conn = get_db_connection()
-                cur = conn.cursor()
-                cur.execute("UPDATE TB_matter SET is_hidden = 1 WHERE matter_id = ?", (st.session_state.get('selected_id'),))
-                conn.commit()
-                conn.close()
+                from supabase import create_client
+                supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+                supabase.table("TB_matter").update({"is_hidden": 1}).eq("matter_id", st.session_state.get('selected_id')).execute()
                 
                 st.success("✅ 案件を除外しました。")
                 # 処理が終わったら記憶を消す

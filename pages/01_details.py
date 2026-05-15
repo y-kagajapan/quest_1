@@ -440,9 +440,9 @@ else:
         # 新規作成時は「そのまま比較」、更新時は「自分の今の予算を一度戻してから比較」
         current_val = row['est_amount'] if not is_new else 0
         if (m_amount - current_val) > remaining:
-             st.warning(f"⚠️ 予算残高不足です！ （現在の部署残高: ¥{remaining:,.0f}）")
+            st.warning(f"⚠️ 予算残高不足です！ （現在の部署残高: ¥{remaining:,.0f}）")
         elif remaining < 100000: # 残りが10万を切ったら注意喚起
-             st.info(f"💡 予算の残りが少なくなっています （残り: ¥{remaining:,.0f}）")
+            st.info(f"💡 予算の残りが少なくなっています （残り: ¥{remaining:,.0f}）")
         
         # --- B. 承認後もいじれる「実績報告系」 (is_progress_disabled) ---
         v1, v2, v3 = st.columns(3)
